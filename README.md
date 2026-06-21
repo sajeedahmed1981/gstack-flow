@@ -1,6 +1,6 @@
 # gstack-flow
 
-*by Sajeed Ahmed*
+*by Sajeed Ahmed · co-created with Claude*
 
 Three add-ons that make [gstack](https://github.com/garrytan/gstack) easier to live
 with day-to-day:
@@ -53,4 +53,5 @@ Restart Claude Code so `/flow` appears in the `/` palette.
 - **gstack** by Garry Tan — https://github.com/garrytan/gstack (MIT). All the `/`-skills
   this kit orchestrates are gstack's work.
 - This starter kit (the `/flow` conductor, the `recall/` convention, the graph helper)
-  is MIT-licensed — see [LICENSE](LICENSE).
+  was **created by Sajeed Ahmed, co-created with Claude (Anthropic)**, and is
+  MIT-licensed — see [LICENSE](LICENSE).
