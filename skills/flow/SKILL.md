@@ -1,6 +1,6 @@
 ---
 name: flow
-version: 2.0.0
+version: 2.1.0
 description: One-command conductor for the product pipeline (Think → Idea Lab → Research → Plan → Build → Review → Test → Ship → Reflect). Adds an adversarial idea council + an iterative research-with-sample gate on top of gstack. Drives gates one at a time, pauses for approval, resumes across sessions. Use when the user types /flow, /flow status, /flow next, /flow reset, or /flow goto <gate>.
 allowed-tools:
   - Bash
@@ -193,6 +193,59 @@ Procedure (ITERATIVE — loop, do NOT one-shot):
 **Blocked transition:** gate 4 (plan) MUST NOT start unless `research-brief.md` exists. If the
 user tries to skip ahead, warn and offer to run research first.
 
+## Capability routing & repair (G3) — at the START of every gate
+
+Don't let installed capability sit idle (the #1 failure mode). Before running a gate, route
+to the tools it needs and flag/repair broken ones — never fail silent.
+
+1. Detect what's available (quick, quiet): `WebSearch` (built-in), gstack `deep-research`,
+   `gbrain` (code search), any research MCP (e.g. Perplexity).
+2. **Health-check & SAY SO:** if a tool is configured but broken (e.g. `~/.gbrain/config.json`
+   exists but `gbrain` not on PATH), tell the user + offer the fix (`/setup-gbrain`). If a tool
+   errors, report it — don't pretend it ran.
+3. **Gate → tool map** (invoke or offer; don't wait to be asked):
+   - think / idea-lab → `WebSearch` to fact-check claims on the spot
+   - research → `WebSearch` + `deep-research` (+ research MCP if present) — REQUIRED here
+   - plan → `gbrain code-def`/`code-refs` to ground architecture in the real codebase
+   - build → `gbrain` search BEFORE writing (find existing code to reuse — DRY)
+   - review → `gbrain code-callers`/`code-callees` to trace blast radius
+   - test → the product-type tool (browser for code; none for content — see gate-sets)
+4. State in one line which tools you used/offered, so routing is visible.
+
+## Product-type gate-sets (G4)
+
+`meta.product_type` adapts not just the roles but what **review** and **test** MEAN. Apply the
+matching variant when you reach those gates (other gates are stable across types):
+
+| product_type         | review =                              | test =                                                |
+|----------------------|---------------------------------------|-------------------------------------------------------|
+| engineering/dev-tool | impact analysis — gstack `review`     | browser/unit QA — gstack `qa`                         |
+| content/teaching     | factual accuracy + pedagogy review    | comprehension test (real human + learner lens) + expert sign-off |
+| research             | methodology + source-quality review   | replication / "can someone follow it?" check          |
+| design/consumer      | heuristic + accessibility review      | usability test with a representative user             |
+
+For non-engineering types, do NOT force Playwright/`/qa` — run the variant (usually a structured
+human/persona review, not code execution). Engineering type = the original gstack gates unchanged.
+
+## Build gate sub-structure (G5)
+
+Build is where most work happens — give it a spine instead of going dark.
+
+On entering build:
+1. Derive a **milestone list** from the plan + research brief (3–7 concrete, testable chunks).
+   Write it to `~/.gstack/projects/<slug>/build-plan.md` and show it.
+2. Work milestone by milestone. After EACH milestone:
+   - quick **inline review** ("here's what we built — does it match the plan?"),
+   - **checkpoint:** tick it in build-plan.md (offer a commit, with approval),
+   - **scope check:** if work drifts beyond the locked plan, flag it ("this is beyond v1 —
+     continue or defer?") — never silently expand.
+3. **Cross-session:** if not all milestones are done when a work session ends, leave build
+   `in_progress` with build-plan.md updated; next `/flow` resumes at the first un-ticked milestone.
+4. When all milestones are ticked (or the user says done), mark build done.
+
+Still hands-on (you + Claude write the code) — but with a visible checklist, per-milestone
+review, and scope tracking, not a black hole.
+
 ## State / checkpoint
 
 - Slug = `basename "$PWD"`.
@@ -243,22 +296,28 @@ user tries to skip ahead, warn and offer to run research first.
 3. Pick the target gate = `current` if `in_progress`, else first `pending`.
 4. If all gates are `done` → congratulate, suggest `/flow reset` for a new cycle, stop.
 5. Announce: "Gate N/9 — <gate>." Set that gate to `in_progress`, write state.
-6. **Dispatch by gate:**
-   - `think`, `plan`, `review`, `test`, `ship` → READ the mapped gstack SKILL.md and run it.
+6. **Capability routing (G3):** route to + repair this gate's tools (see "Capability routing &
+   repair"). State in one line what you used/offered.
+7. **Dispatch by gate:**
+   - `think`, `plan`, `ship` → READ the mapped gstack SKILL.md and run it.
+   - `review`, `test` → run the **product-type variant** (see "Product-type gate-sets"):
+     engineering = gstack `review`/`qa`; other types = that type's variant (don't force `/qa`).
    - `reflect` → run gstack `retro` then `learn`.
-   - `idea-lab`, `research` → run the inline procedure defined above (do NOT look for a gstack skill).
-   - `build` → MANUAL: say "Build is hands-on — you and I write the code now. Run `/flow`
-     again when it works and I'll continue to Review." Leave `in_progress`, write state, STOP.
-     (On return with build+in_progress, ask "Is the build done?"; if yes, mark done, advance.)
-7. **Blocked transitions (enforce):**
+   - `idea-lab`, `research` → run the inline procedures above (no gstack skill).
+   - `build` → run the **Build sub-structure** (milestones + per-milestone review + scope
+     check; brackets across sessions).
+8. **Blocked transitions (enforce):**
    - `plan` must NOT start unless `~/.gstack/projects/<slug>/research-brief.md` exists →
      else warn and offer to run `research` first.
    - `ship` is the APPROVAL GATE: before any commit/push, show a concise diff summary +
      impact, then AskUserQuestion for explicit approval. Never commit/push without it.
-8. On completion, mark the gate `done` with timestamp, set `current` to the next pending
+9. On completion, mark the gate `done` with timestamp, set `current` to the next pending
    gate, write state.
-9. AskUserQuestion: "✅ <gate> done. Approve and continue to <next>?" — options
-   [Continue, Stop here, Redo <gate>]. Honor the answer.
+10. **Gate-boundary memory (G7):** before moving on, capture lightweight "what changed · why ·
+    is it durable?" — if durable, write `recall/NNNN-<slug>.md` + add its INDEX line. Don't
+    wait for reflect; mid-stream insights get lost otherwise.
+11. AskUserQuestion: "✅ <gate> done. Approve and continue to <next>?" — options
+    [Continue, Stop here, Redo <gate>]. Honor the answer.
 
 ## Board format (always render at the top)
 
