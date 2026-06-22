@@ -5,10 +5,14 @@
 Three add-ons that make [gstack](https://github.com/garrytan/gstack) easier to live
 with day-to-day:
 
-1. **`/flow`** — a one-command conductor for gstack's 7-gate workflow
-   (Think → Plan → Build → Review → Test → Ship → Reflect). Drives the gates one at a
-   time, pauses for your approval, and **resumes across sessions** via a disk checkpoint.
-   You stop memorising 50 command names — just type `/flow`.
+1. **`/flow`** — a one-command conductor for a 9-gate workflow:
+   **Think → Idea Lab → Research → Plan → Build → Review → Test → Ship → Reflect.**
+   It adds two gates gstack doesn't have: an adversarial **Idea Lab** (a council of
+   personas — innovator, skeptical investor, domain expert, practitioner, rival builder,
+   confused user — that stress-tests the idea) and an iterative **Research** gate (cited
+   brief + a previewable product *sample*, judged by a domain-expert and a target-learner
+   lens; blocks Plan until done). Drives gates one at a time, pauses for approval,
+   **resumes across sessions**, and auto-bootstraps `recall/`. Just type `/flow`.
 2. **`recall/`** — a tiny **repo-local memory** convention. Plain markdown files in your
    repo (decisions, gotchas, a bug log) that auto-load each session via `CLAUDE.md`.
    Git-versioned, zero cost, no database.

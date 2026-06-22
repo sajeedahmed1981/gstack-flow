@@ -1,7 +1,7 @@
 ---
 name: flow
-version: 1.1.0
-description: One-command conductor for the gstack pipeline (Think → Plan → Build → Review → Test → Ship → Reflect). Drives gates one at a time, pauses for approval, and resumes across sessions via a disk checkpoint. Use when the user types /flow, /flow status, /flow next, /flow reset, or /flow goto <gate>.
+version: 2.0.0
+description: One-command conductor for the product pipeline (Think → Idea Lab → Research → Plan → Build → Review → Test → Ship → Reflect). Adds an adversarial idea council + an iterative research-with-sample gate on top of gstack. Drives gates one at a time, pauses for approval, resumes across sessions. Use when the user types /flow, /flow status, /flow next, /flow reset, or /flow goto <gate>.
 allowed-tools:
   - Bash
   - Read
@@ -10,11 +10,13 @@ allowed-tools:
   - Write
   - Edit
   - AskUserQuestion
+  - Task
+  - WebSearch
 ---
 
 # /flow — gstack pipeline conductor
 
-You are driving a 7-gate product-development pipeline so the user only has to
+You are driving a 9-gate product-development pipeline so the user only has to
 remember ONE command. You are the conductor: you run gates in order, pause for
 the user's approval between each, and persist progress so a fresh session resumes
 exactly where it left off.
@@ -106,20 +108,90 @@ a brand-new folder gstack-ready automatically — the user shouldn't have to set
 (The triple-backtick fences shown above use a zero-width marker `​` only to nest cleanly
 in this skill file — write normal ``` fences in the actual files.)
 
-## The 7 gates and their gstack mapping
+## The 9 gates
 
-| # | Gate    | Runs (gstack skill)        | Notes |
-|---|---------|----------------------------|-------|
-| 1 | think   | `office-hours`             | interrogate the idea / assumptions |
-| 2 | plan    | `autoplan`                 | CEO → design → eng → devx reviews |
-| 3 | build   | — (MANUAL handoff)         | you + user write the code; bracket only |
-| 4 | review  | `review`                   | impact analysis: "what could break?" |
-| 5 | test    | `qa`                       | real-browser test + regression tests |
-| 6 | ship    | `ship`                     | tests + PR; APPROVAL GATE before commit/push |
-| 7 | reflect | `retro` then `learn`       | capture learnings |
+| # | Gate      | Runs                         | Notes |
+|---|-----------|------------------------------|-------|
+| 1 | think     | gstack `office-hours`        | shape the idea WITH the user |
+| 2 | idea-lab  | **inline (this skill)**      | adversarial council challenges the idea |
+| 3 | research  | **inline (this skill)**      | iterative; cited brief + product sample; 2 lenses; BLOCKS plan |
+| 4 | plan      | gstack `autoplan`            | CEO → design → eng → devx council on the plan |
+| 5 | build     | — (MANUAL handoff)           | you + user write the code; bracket only |
+| 6 | review    | gstack `review`              | impact analysis: "what could break?" |
+| 7 | test      | gstack `qa`                  | browser / comprehension test + regression |
+| 8 | ship      | gstack `ship`                | tests + PR; APPROVAL GATE before commit/push |
+| 9 | reflect   | gstack `retro` then `learn`  | capture learnings |
 
-A gate "runs a gstack skill" = you READ `~/.claude/skills/gstack/<skill>/SKILL.md`
-and execute its instructions in the current session. Do NOT reimplement it.
+- "Runs gstack `<skill>`" = READ `~/.claude/skills/gstack/<skill>/SKILL.md` and execute it.
+  Do NOT reimplement gstack skills.
+- "inline (this skill)" gates — **idea-lab** and **research** — are defined in full below;
+  run those procedures directly.
+
+## Product type + roles (capture ONCE, after bootstrap, before idea-lab)
+
+Ensure `state.meta.product_type` and `state.meta.roles` are set. If missing, ask the user
+(one AskUserQuestion): which best fits — **engineering/dev-tool · content/teaching · research ·
+design/consumer-app · other**. From the answer set the two role lenses `roles = {expert, learner}`:
+- content/teaching → expert: domain professor · learner: target student (e.g. "8th grader")
+- dev-tool → expert: senior engineer · learner: junior dev
+- consumer app → expert: domain expert · learner: real end-user
+- other → ask the user to name the two
+Store in `state.meta`. These drive Idea Lab's domain/end-user personas AND the Research lenses.
+
+## Idea Lab gate (gate 2) — adversarial idea council
+
+Interrogate the IDEA hard, BEFORE research, so the sharpest objections + unverified assumptions
+become the research agenda. **Friendly name, adversarial behavior — keep the teeth.**
+
+Personas — spawn as parallel subagents via `Task` (1 advocate + 5 challengers):
+1. **The Innovator** (advocate — the ONLY non-adversarial voice) — argues the core insight,
+   "why now", the unique edge; defends what's genuinely new so the council doesn't strip the
+   differentiation. Also names the one assumption the idea CANNOT survive being wrong.
+2. **Skeptical Investor** — demand, market, willingness to pay. "Who is genuinely upset if this
+   vanishes — not 'interested'?"
+3. **Domain Expert** (use `meta.roles.expert`) — rigor, correctness; does it respect how the
+   field actually works?
+4. **Practitioner** — real-world daily usage. "Would I actually use this, and when?"
+5. **Rival Builder** — competitive threat / moat. "Here's how I clone it and win."
+6. **Confused End-User** (use `meta.roles.learner`) — clarity, onboarding friction. "I don't get it."
+
+Procedure:
+1. Give every persona the idea (think / office-hours output).
+2. Each returns its single sharpest point (challengers → strongest objection; innovator →
+   strongest case + the load-bearing assumption).
+3. Synthesize into: **(a) sharpest objections (ranked)** · **(b) unverified assumptions →
+   these become the Research questions** · **(c) genuine strengths (what survived)**.
+4. **Challenge-mode questions:** when asking the user to react, present objections WITHOUT a
+   "(Recommended)" option — make them defend or revise, don't nudge toward agreement.
+5. Write `~/.gstack/projects/<slug>/idea-lab.md`; surface durable decisions into `recall/`.
+
+## Research gate (gate 3) — iterative, sampled, two-lens
+
+Verify the idea-lab assumptions against reality AND make the output concrete enough to steer.
+**BLOCKS the plan gate until a research brief exists.**
+
+Procedure (ITERATIVE — loop, do NOT one-shot):
+1. Turn idea-lab's assumptions into explicit research questions (≥ competitors + domain/expert
+   knowledge + market/demand).
+2. **Auto-invoke research tools** — `WebSearch`, and gstack `deep-research` if present; gbrain
+   if relevant. Don't wait to be asked. If a configured tool is broken (e.g. gbrain CLI
+   missing), SAY SO — never fail silent.
+3. Each pass produce TWO things:
+   a. a **cited research brief** answering the questions, and
+   b. a **previewable PRODUCT SAMPLE** — a concrete instance of the real output (sample lesson /
+      mock screen / worked example) grounded in the findings. Show, don't tell.
+4. Evaluate the sample through the **two lenses**:
+   - **Expert** (`meta.roles.expert`): accurate, deep, structurally/pedagogically sound?
+   - **Learner** (`meta.roles.learner`): can a zero-prior-knowledge target actually understand it?
+5. Refine sample + brief from their critiques. Repeat 3–4 until both lenses pass a good bar or
+   the user is satisfied.
+6. Before locking: the learner persona is a PROXY — **prompt the user for a real-human
+   comprehension check** (the strongest signal). Capture the result.
+7. Write `~/.gstack/projects/<slug>/research-brief.md` (cited) + keep the sample; surface key
+   findings into `recall/`.
+
+**Blocked transition:** gate 4 (plan) MUST NOT start unless `research-brief.md` exists. If the
+user tries to skip ahead, warn and offer to run research first.
 
 ## State / checkpoint
 
@@ -129,17 +201,23 @@ and execute its instructions in the current session. Do NOT reimplement it.
   ```json
   {
     "slug": "my-project",
-    "created": "2026-06-20T...",
-    "updated": "2026-06-20T...",
-    "current": "review",
+    "created": "...",
+    "updated": "...",
+    "current": "research",
+    "meta": {
+      "product_type": "content/teaching",
+      "roles": { "expert": "AI professor", "learner": "8th grader" }
+    },
     "gates": {
-      "think":   {"status": "done",        "at": "..."},
-      "plan":    {"status": "done",        "at": "..."},
-      "build":   {"status": "done",        "at": "..."},
-      "review":  {"status": "in_progress", "at": "..."},
-      "test":    {"status": "pending"},
-      "ship":    {"status": "pending"},
-      "reflect": {"status": "pending"}
+      "think":    {"status": "done",        "at": "..."},
+      "idea-lab": {"status": "done",        "at": "..."},
+      "research": {"status": "in_progress", "at": "..."},
+      "plan":     {"status": "pending"},
+      "build":    {"status": "pending"},
+      "review":   {"status": "pending"},
+      "test":     {"status": "pending"},
+      "ship":     {"status": "pending"},
+      "reflect":  {"status": "pending"}
     }
   }
   ```
@@ -161,33 +239,33 @@ and execute its instructions in the current session. Do NOT reimplement it.
 ## Execution loop (for /flow and /flow next)
 
 1. Resolve slug, read or create state, print the board (see format below).
-2. Pick the target gate = `current` if `in_progress`, else first `pending`.
-3. If all gates are `done` → congratulate, suggest `/flow reset` for a new cycle, stop.
-4. Announce: "Gate N/7 — <gate>. This runs gstack `<skill>`." Set that gate to
-   `in_progress`, write state.
-5. **build gate special-case:** do NOT auto-run anything. Say: "Build is hands-on —
-   you and I write the code now. When the feature is working, run `/flow` again and
-   I'll continue to Review." Leave build `in_progress`, write state, STOP. (When the
-   user returns and the target gate is build+in_progress, ask "Is the build done?";
-   if yes, mark done and advance to review.)
-6. **all other gates:** read the mapped gstack SKILL.md and execute it fully.
-   - reflect runs TWO skills: `retro` then `learn`.
-   - ship is the APPROVAL GATE: before any commit/push, surface a concise summary of
-     what changed and the impact, then use AskUserQuestion to get explicit approval.
-     Never commit or push without that approval (respects the user's commit policy).
-7. On completion, mark the gate `done` with timestamp, set `current` to the next
-   pending gate, write state.
-8. Use AskUserQuestion: "✅ <gate> done. Approve and continue to <next>?" with
-   options [Continue, Stop here, Redo <gate>]. Honor the answer.
+2. Ensure `meta.product_type` + `meta.roles` exist (capture once — see that section above).
+3. Pick the target gate = `current` if `in_progress`, else first `pending`.
+4. If all gates are `done` → congratulate, suggest `/flow reset` for a new cycle, stop.
+5. Announce: "Gate N/9 — <gate>." Set that gate to `in_progress`, write state.
+6. **Dispatch by gate:**
+   - `think`, `plan`, `review`, `test`, `ship` → READ the mapped gstack SKILL.md and run it.
+   - `reflect` → run gstack `retro` then `learn`.
+   - `idea-lab`, `research` → run the inline procedure defined above (do NOT look for a gstack skill).
+   - `build` → MANUAL: say "Build is hands-on — you and I write the code now. Run `/flow`
+     again when it works and I'll continue to Review." Leave `in_progress`, write state, STOP.
+     (On return with build+in_progress, ask "Is the build done?"; if yes, mark done, advance.)
+7. **Blocked transitions (enforce):**
+   - `plan` must NOT start unless `~/.gstack/projects/<slug>/research-brief.md` exists →
+     else warn and offer to run `research` first.
+   - `ship` is the APPROVAL GATE: before any commit/push, show a concise diff summary +
+     impact, then AskUserQuestion for explicit approval. Never commit/push without it.
+8. On completion, mark the gate `done` with timestamp, set `current` to the next pending
+   gate, write state.
+9. AskUserQuestion: "✅ <gate> done. Approve and continue to <next>?" — options
+   [Continue, Stop here, Redo <gate>]. Honor the answer.
 
 ## Board format (always render at the top)
 
 ```
-flow · <slug>
-┌─ think ─┬─ plan ─┬─ build ─┬─ review ─┬─ test ─┬─ ship ─┬─ reflect ┐
-│   ✅    │   ✅   │   ✅    │   🔵     │   ⚪   │   ⚪   │    ⚪     │
-└─────────┴────────┴─────────┴──────────┴────────┴────────┴──────────┘
-next: review  ·  artifacts in ~/.gstack/projects/<slug>/
+flow · <slug> · type: <product-type>
+1.think ✅  2.idea-lab ✅  3.research 🔵  4.plan ⚪  5.build ⚪  6.review ⚪  7.test ⚪  8.ship ⚪  9.reflect ⚪
+next: research  ·  artifacts in ~/.gstack/projects/<slug>/
 ```
 
 ## Rules
