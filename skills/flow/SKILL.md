@@ -1,6 +1,6 @@
 ---
 name: flow
-version: 2.1.0
+version: 2.2.0
 description: One-command conductor for the product pipeline (Think → Idea Lab → Research → Plan → Build → Review → Test → Ship → Reflect). Adds an adversarial idea council + an iterative research-with-sample gate on top of gstack. Drives gates one at a time, pauses for approval, resumes across sessions. Use when the user types /flow, /flow status, /flow next, /flow reset, or /flow goto <gate>.
 allowed-tools:
   - Bash
@@ -246,6 +246,21 @@ On entering build:
 Still hands-on (you + Claude write the code) — but with a visible checklist, per-milestone
 review, and scope tracking, not a black hole.
 
+## Cost & scope surfacing (G8)
+
+Two awareness guardrails so fan-out and scope don't drift silently.
+
+- **Cost on fan-out:** before spawning parallel subagents (idea-lab's 6 personas, parallel
+  research threads, multiple build agents), state a rough cost up front —
+  "spawning N agents (~roughly small / medium / large token cost)" — and note that parallel
+  isn't always worth it (use it for genuinely independent work; skip for quick or sequential
+  tasks). For large fan-outs (≥ 4 heavy agents), ask the user to confirm before spending.
+- **Scope vs the locked plan:** the plan gate + research brief define the agreed scope (e.g. a
+  "v1 seed lesson"). At ANY later gate, if proposed work exceeds that, flag it explicitly —
+  "this is beyond the locked v1 (<what>) — continue, or defer to a backlog item?" Never
+  silently expand. (G5's build scope-check is the build-gate instance; G8 generalizes it to
+  every gate.)
+
 ## State / checkpoint
 
 - Slug = `basename "$PWD"`.
@@ -335,4 +350,6 @@ next: research  ·  artifacts in ~/.gstack/projects/<slug>/
   at the ship approval gate.
 - If gstack is not installed (`~/.claude/skills/gstack` missing), tell the user to
   install it; do not attempt the gates.
+- Surface rough cost before any parallel fan-out, and flag scope creep vs the locked plan
+  (see "Cost & scope surfacing").
 - Keep the user in control. You nag and track; you do not bulldoze.
