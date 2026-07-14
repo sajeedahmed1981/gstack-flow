@@ -1,6 +1,6 @@
 ---
 name: flow
-version: 2.2.0
+version: 2.3.0
 description: One-command conductor for the product pipeline (Think → Idea Lab → Research → Plan → Build → Review → Test → Ship → Reflect). Adds an adversarial idea council + an iterative research-with-sample gate on top of gstack. Drives gates one at a time, pauses for approval, resumes across sessions. Use when the user types /flow, /flow status, /flow next, /flow reset, or /flow goto <gate>.
 allowed-tools:
   - Bash
@@ -212,6 +212,33 @@ to the tools it needs and flag/repair broken ones — never fail silent.
    - test → the product-type tool (browser for code; none for content — see gate-sets)
 4. State in one line which tools you used/offered, so routing is visible.
 
+## Code brain (gbrain) — auto-configured per project
+
+gstack-flow sets up a **local, free code-search brain for each project automatically** — the
+same "no setup" philosophy as `recall/`. The brain powers "jump to the right file",
+find-references, and blast-radius tracing in the code-aware gates (plan / build / review).
+
+**When:** lazily — the first time you reach a code-aware gate (plan / build / review) AND code
+exists in the repo. Don't index an empty repo during think / idea-lab / research.
+
+**Steps (once per project, then keep fresh):**
+1. **CLI check.** If `gbrain` is not on PATH → tell the user ONCE and offer gstack's
+   `/setup-gbrain` (installs it, ~30s). Then skip brain use gracefully — never block a gate on
+   a missing brain.
+2. **Brain check.** If no brain exists yet (`~/.gbrain` absent), init a free local one:
+   `gbrain init --pglite` (no API key, no cloud).
+3. **Register this project** if it isn't a source yet: `gbrain sources add <slug> --path "$PWD"`
+   (slug = basename of cwd).
+4. **Index the code:** `gbrain sync --source <slug> --strategy code && gbrain extract --stale`.
+5. **Keep fresh:** before each later code-aware gate, if code changed since the last sync,
+   re-run step 4 (sync is incremental and fast).
+
+**Repair, don't fail silent (per G3):** if `~/.gbrain/config.json` exists but the CLI is
+missing, or a sync errors — SAY SO and offer the fix. Never pretend the brain ran.
+
+Record `state.meta.gbrain` = `"ready"` | `"offered"` (CLI missing, user hasn't installed) |
+`"skipped"` so the board can show brain status.
+
 ## Product-type gate-sets (G4)
 
 `meta.product_type` adapts not just the roles but what **review** and **test** MEAN. Apply the
@@ -274,7 +301,8 @@ Two awareness guardrails so fan-out and scope don't drift silently.
     "current": "research",
     "meta": {
       "product_type": "content/teaching",
-      "roles": { "expert": "AI professor", "learner": "8th grader" }
+      "roles": { "expert": "AI professor", "learner": "8th grader" },
+      "gbrain": "ready"
     },
     "gates": {
       "think":    {"status": "done",        "at": "..."},
@@ -312,7 +340,9 @@ Two awareness guardrails so fan-out and scope don't drift silently.
 4. If all gates are `done` → congratulate, suggest `/flow reset` for a new cycle, stop.
 5. Announce: "Gate N/9 — <gate>." Set that gate to `in_progress`, write state.
 6. **Capability routing (G3):** route to + repair this gate's tools (see "Capability routing &
-   repair"). State in one line what you used/offered.
+   repair"). State in one line what you used/offered. For code-aware gates (plan / build /
+   review), also **auto-configure the project's code brain** (see "Code brain — auto-configured
+   per project") the first time code exists.
 7. **Dispatch by gate:**
    - `think`, `plan`, `ship` → READ the mapped gstack SKILL.md and run it.
    - `review`, `test` → run the **product-type variant** (see "Product-type gate-sets"):
@@ -337,7 +367,7 @@ Two awareness guardrails so fan-out and scope don't drift silently.
 ## Board format (always render at the top)
 
 ```
-flow · <slug> · type: <product-type>
+flow · <slug> · type: <product-type> · brain: <ready | —>
 1.think ✅  2.idea-lab ✅  3.research 🔵  4.plan ⚪  5.build ⚪  6.review ⚪  7.test ⚪  8.ship ⚪  9.reflect ⚪
 next: research  ·  artifacts in ~/.gstack/projects/<slug>/
 ```
