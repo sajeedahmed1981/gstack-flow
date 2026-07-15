@@ -1,7 +1,7 @@
 ---
 name: flow
-version: 2.3.0
-description: One-command conductor for the product pipeline (Think → Idea Lab → Research → Plan → Build → Review → Test → Ship → Reflect). Adds an adversarial idea council + an iterative research-with-sample gate on top of gstack. Drives gates one at a time, pauses for approval, resumes across sessions. Use when the user types /flow, /flow status, /flow next, /flow reset, or /flow goto <gate>.
+version: 2.4.0
+description: One-command conductor for the product pipeline (Think → Idea Lab → Research → Plan → Build → Review → Test → Support → Ship → Reflect). Adds an adversarial idea council, an iterative research-with-sample gate, and per-feature support docs on top of gstack. Drives gates one at a time, pauses for approval, resumes across sessions. Use when the user types /flow, /flow status, /flow next, /flow reset, or /flow goto <gate>.
 allowed-tools:
   - Bash
   - Read
@@ -108,7 +108,7 @@ a brand-new folder gstack-ready automatically — the user shouldn't have to set
 (The triple-backtick fences shown above use a zero-width marker `​` only to nest cleanly
 in this skill file — write normal ``` fences in the actual files.)
 
-## The 9 gates
+## The 10 gates
 
 | # | Gate      | Runs                         | Notes |
 |---|-----------|------------------------------|-------|
@@ -119,13 +119,14 @@ in this skill file — write normal ``` fences in the actual files.)
 | 5 | build     | — (MANUAL handoff)           | you + user write the code; bracket only |
 | 6 | review    | gstack `review`              | impact analysis: "what could break?" |
 | 7 | test      | gstack `qa`                  | browser / comprehension test + regression |
-| 8 | ship      | gstack `ship`                | tests + PR; APPROVAL GATE before commit/push |
-| 9 | reflect   | gstack `retro` then `learn`  | capture learnings |
+| 8 | support   | **inline (this skill)**      | per-feature support docs (seeds future support agents) |
+| 9 | ship      | gstack `ship`                | tests + PR; APPROVAL GATE before commit/push |
+| 10| reflect   | gstack `retro` then `learn`  | capture learnings |
 
 - "Runs gstack `<skill>`" = READ `~/.claude/skills/gstack/<skill>/SKILL.md` and execute it.
   Do NOT reimplement gstack skills.
-- "inline (this skill)" gates — **idea-lab** and **research** — are defined in full below;
-  run those procedures directly.
+- "inline (this skill)" gates — **idea-lab**, **research**, and **support** — are defined in
+  full below; run those procedures directly.
 
 ## Product type + roles (capture ONCE, after bootstrap, before idea-lab)
 
@@ -192,6 +193,43 @@ Procedure (ITERATIVE — loop, do NOT one-shot):
 
 **Blocked transition:** gate 4 (plan) MUST NOT start unless `research-brief.md` exists. If the
 user tries to skip ahead, warn and offer to run research first.
+
+## Support gate (gate 8) — per-feature support docs (before Ship)
+
+Before the feature ships, capture the **support knowledge** a human rep — or later an automated
+**support agent** — will need. These accumulate into a `support/` knowledge base that seeds
+support agents once the product is live. The docs ship *with* the feature.
+
+**Where:** `support/<feature-slug>.md` in the repo (create `support/` on first use) + a
+`support/INDEX.md`. Keep the format identical across features — consistency now = a working
+support brain later.
+
+**Each doc: frontmatter + six sections**
+```
+---
+feature: <name> · slug: <kebab> · version: <app version> · date: YYYY-MM-DD
+status: draft | live · product_type: <from meta>
+---
+1. What it is        — plain-language, user-facing (what it does, who it's for)
+2. How to use it     — the steps a user takes
+3. Troubleshooting   — symptom → likely cause → fix   (the support-agent core)
+4. FAQs              — the questions a real user asks
+5. Limitations       — what it does NOT do / edge cases
+6. Escalation        — when to hand to a human + what info to collect
+```
+
+**Build it from what the flow already produced (don't invent):**
+- **What / How-to** — ground in what was actually built: use the code brain (gbrain) + the plan.
+- **Troubleshooting** — MINE it from: bugs surfaced in Test, blast-radius risks from Review,
+  gotchas in `recall/`, and the failure modes the Idea Lab personas raised. This is the
+  highest-value section — a support agent lives on *symptom → cause → fix*.
+- **Product-type aware (G4):** content → learner help + common misconceptions; dev tool →
+  API/usage + error messages; consumer app → account / billing / how-to.
+
+**Rules:** one doc per feature; if Ship changes the feature, update the doc so it matches what
+actually shipped. Add an `INDEX.md` line; surface anything durable into `recall/` too.
+
+Output: the **seed corpus for a future support agent** — the reason this gate exists.
 
 ## Capability routing & repair (G3) — at the START of every gate
 
@@ -312,6 +350,7 @@ Two awareness guardrails so fan-out and scope don't drift silently.
       "build":    {"status": "pending"},
       "review":   {"status": "pending"},
       "test":     {"status": "pending"},
+      "support":  {"status": "pending"},
       "ship":     {"status": "pending"},
       "reflect":  {"status": "pending"}
     }
@@ -338,7 +377,7 @@ Two awareness guardrails so fan-out and scope don't drift silently.
 2. Ensure `meta.product_type` + `meta.roles` exist (capture once — see that section above).
 3. Pick the target gate = `current` if `in_progress`, else first `pending`.
 4. If all gates are `done` → congratulate, suggest `/flow reset` for a new cycle, stop.
-5. Announce: "Gate N/9 — <gate>." Set that gate to `in_progress`, write state.
+5. Announce: "Gate N/10 — <gate>." Set that gate to `in_progress`, write state.
 6. **Capability routing (G3):** route to + repair this gate's tools (see "Capability routing &
    repair"). State in one line what you used/offered. For code-aware gates (plan / build /
    review), also **auto-configure the project's code brain** (see "Code brain — auto-configured
@@ -348,7 +387,7 @@ Two awareness guardrails so fan-out and scope don't drift silently.
    - `review`, `test` → run the **product-type variant** (see "Product-type gate-sets"):
      engineering = gstack `review`/`qa`; other types = that type's variant (don't force `/qa`).
    - `reflect` → run gstack `retro` then `learn`.
-   - `idea-lab`, `research` → run the inline procedures above (no gstack skill).
+   - `idea-lab`, `research`, `support` → run the inline procedures above (no gstack skill).
    - `build` → run the **Build sub-structure** (milestones + per-milestone review + scope
      check; brackets across sessions).
 8. **Blocked transitions (enforce):**
@@ -368,7 +407,7 @@ Two awareness guardrails so fan-out and scope don't drift silently.
 
 ```
 flow · <slug> · type: <product-type> · brain: <ready | —>
-1.think ✅  2.idea-lab ✅  3.research 🔵  4.plan ⚪  5.build ⚪  6.review ⚪  7.test ⚪  8.ship ⚪  9.reflect ⚪
+1.think ✅  2.idea-lab ✅  3.research 🔵  4.plan ⚪  5.build ⚪  6.review ⚪  7.test ⚪  8.support ⚪  9.ship ⚪  10.reflect ⚪
 next: research  ·  artifacts in ~/.gstack/projects/<slug>/
 ```
 
