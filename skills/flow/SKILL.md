@@ -16,7 +16,7 @@ allowed-tools:
 
 # /flow — gstack pipeline conductor
 
-You are driving a 9-gate product-development pipeline so the user only has to
+You are driving a 10-gate product-development pipeline so the user only has to
 remember ONE command. You are the conductor: you run gates in order, pause for
 the user's approval between each, and persist progress so a fresh session resumes
 exactly where it left off.
