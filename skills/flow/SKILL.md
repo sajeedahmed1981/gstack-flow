@@ -1,6 +1,6 @@
 ---
 name: flow
-version: 2.4.0
+version: 2.4.1
 description: One-command conductor for the product pipeline (Think → Idea Lab → Research → Plan → Build → Review → Test → Support → Ship → Reflect). Adds an adversarial idea council, an iterative research-with-sample gate, and per-feature support docs on top of gstack. Drives gates one at a time, pauses for approval, resumes across sessions. Use when the user types /flow, /flow status, /flow next, /flow reset, or /flow goto <gate>.
 allowed-tools:
   - Bash
@@ -359,6 +359,12 @@ Two awareness guardrails so fan-out and scope don't drift silently.
 - Statuses: `pending` ⚪ · `in_progress` 🔵 · `done` ✅ · `skipped` ⏭.
 - Always `mkdir -p ~/.gstack/projects/<slug>` before writing. Use `date -u +%FT%TZ`
   for timestamps. Read the file with `Read`; write it with `Write` (full JSON).
+- **Migrate on read (forward-compat).** Canonical gate order:
+  `think · idea-lab · research · plan · build · review · test · support · ship · reflect`.
+  When you read an EXISTING state, for any canonical gate missing from `state.gates`, insert it
+  as `{"status":"pending"}` in canonical order; add `meta.gbrain` if absent. Then write the
+  migrated state back. This is how projects created by an older `/flow` automatically gain new
+  gates (e.g. `support`) — the user never has to reset.
 
 ## Subcommands
 
@@ -373,7 +379,8 @@ Two awareness guardrails so fan-out and scope don't drift silently.
 
 ## Execution loop (for /flow and /flow next)
 
-1. Resolve slug, read or create state, print the board (see format below).
+1. Resolve slug, read or create state (**migrate old state** — insert missing canonical gates
+   like `support`; see State/checkpoint), print the board (see format below).
 2. Ensure `meta.product_type` + `meta.roles` exist (capture once — see that section above).
 3. Pick the target gate = `current` if `in_progress`, else first `pending`.
 4. If all gates are `done` → congratulate, suggest `/flow reset` for a new cycle, stop.
