@@ -1,6 +1,6 @@
 ---
 name: flow
-version: 2.4.1
+version: 2.5.0
 description: One-command conductor for the product pipeline (Think → Idea Lab → Research → Plan → Build → Review → Test → Support → Ship → Reflect). Adds an adversarial idea council, an iterative research-with-sample gate, and per-feature support docs on top of gstack. Drives gates one at a time, pauses for approval, resumes across sessions. Use when the user types /flow, /flow status, /flow next, /flow reset, or /flow goto <gate>.
 allowed-tools:
   - Bash
@@ -277,6 +277,52 @@ missing, or a sync errors — SAY SO and offer the fix. Never pretend the brain 
 Record `state.meta.gbrain` = `"ready"` | `"offered"` (CLI missing, user hasn't installed) |
 `"skipped"` so the board can show brain status.
 
+## System map + artifacts
+
+Two things: an interactive **system map** of the codebase, and a general **artifacts** step
+that surfaces the flow's visual outputs.
+
+### System map (`/flow map`, and refreshed at reflect)
+
+An interactive "constellation" of the project's files — nodes coloured by layer, edges = imports,
+named data-flows you can highlight (with propagation numbering), and click-a-node → its role,
+input→, output→, and connected files. Structure is auto-extracted; **you curate the meaning**.
+
+The generator ships with this skill at `<skill-dir>/system-map/` (`<skill-dir>` = this skill's
+base directory, e.g. `~/.claude/skills/flow`). Steps:
+
+1. **Detect layout** — backend dir(s) (e.g. `src`), a frontend root (`frontend`) + its dirs
+   (`app,components,lib`). Ensure `madge` is installed (`bun add -g madge`) — if missing, say so
+   and offer to install; needs internet to render (d3 via CDN).
+2. **Curate the meaning** — author/update `map-curation.json` in the repo, using the **code brain
+   (gbrain)** + `recall/` + support docs to fill:
+   ```json
+   { "layers": [ {"id":"ui","label":"UI / form","color":"#4f9dff"} ],
+     "nodes":  { "src/api/recommend.js": {"layer":"adapter","role":"…","input":"…","output":"…"} },
+     "flows":  [ {"name":"price flow","color":"#f0a02a","nodes":["…ordered file ids…"]} ] }
+   ```
+   Group files into meaningful layers (not just folders); write a one-line role + input→/output→
+   per important node; trace the key named data-flows in propagation order. This curation is what
+   makes the map read like a system, not a blob.
+3. **Generate:**
+   ```
+   bun "<skill-dir>/system-map/build-map.mjs" --backend <dirs> --frontendRoot <root> \
+     --frontend <dirs> --curation map-curation.json --out system-map.html
+   ```
+4. **Persist & show** — `system-map.html` in the repo root (commit it; it's a self-contained
+   viewer aside from the d3 CDN). Open it for the user.
+
+`/flow map` runs this on demand. At the **reflect** gate, refresh it (re-run so it matches the
+code that just shipped, extending curation for new/changed files).
+
+### Artifacts step (at reflect, or on demand)
+
+Surface the flow's visual outputs as shareable artifacts: design mockups (from the design
+skills), diagrams (`/diagram`), the research **sample**, and the **system map**. Collect them
+under `artifacts/` in the repo (or publish as Artifacts when the host supports it), and add an
+`artifacts/INDEX.md` pointing to each with a one-line caption. This gives every project a visual
+record of what it is and how it works.
+
 ## Product-type gate-sets (G4)
 
 `meta.product_type` adapts not just the roles but what **review** and **test** MEAN. Apply the
@@ -376,6 +422,8 @@ Two awareness guardrails so fan-out and scope don't drift silently.
 - `/flow reset` — confirm, then overwrite state with all gates `pending`.
 - `/flow skip` — mark the current gate `skipped`, advance, warn that the gate's
   artifact will be missing for downstream gates.
+- `/flow map` — (re)generate the interactive **system map** for this project (see "System map
+  + artifacts"). Standalone; also auto-refreshed at the reflect gate.
 
 ## Execution loop (for /flow and /flow next)
 
@@ -393,7 +441,8 @@ Two awareness guardrails so fan-out and scope don't drift silently.
    - `think`, `plan`, `ship` → READ the mapped gstack SKILL.md and run it.
    - `review`, `test` → run the **product-type variant** (see "Product-type gate-sets"):
      engineering = gstack `review`/`qa`; other types = that type's variant (don't force `/qa`).
-   - `reflect` → run gstack `retro` then `learn`.
+   - `reflect` → run gstack `retro` then `learn`; then **refresh the system map** and the
+     **artifacts** index (see "System map + artifacts").
    - `idea-lab`, `research`, `support` → run the inline procedures above (no gstack skill).
    - `build` → run the **Build sub-structure** (milestones + per-milestone review + scope
      check; brackets across sessions).

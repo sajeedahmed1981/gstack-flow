@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>System Map</title>
+<style>
+  :root{ --bg:#0b1020; --panel:#0f1730; --line:#1e2a4a; --text:#e6ecff; --muted:#8b98c9; --edge:#26345c; }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; height:100%; background:var(--bg); color:var(--text);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; overflow:hidden; }
+  #app{ position:absolute; inset:0; }
+  header{ position:absolute; top:0; left:0; right:0; height:56px; display:flex; align-items:center;
+    gap:10px; padding:0 16px; z-index:5; }
+  header h1{ font-size:15px; margin:0; font-weight:600; }
+  header .sub{ color:var(--muted); font-size:12px; margin-left:2px; }
+  .spacer{ flex:1; }
+  .btn{ background:var(--panel); border:1px solid var(--line); color:var(--text); border-radius:8px;
+    padding:6px 12px; font-size:12px; cursor:pointer; }
+  .btn:hover{ border-color:#3a4d80; }
+  .btn.on{ border-color:#4f9dff; color:#bcd6ff; }
+  #search{ background:var(--panel); border:1px solid var(--line); color:var(--text); border-radius:8px;
+    padding:6px 12px; font-size:12px; width:180px; }
+  svg{ position:absolute; inset:0; width:100%; height:100%; cursor:grab; }
+  svg.grabbing{ cursor:grabbing; }
+  .edge{ stroke:var(--edge); stroke-width:1; fill:none; opacity:.5; }
+  .edge.hl{ stroke:#ffd36b; stroke-width:2; opacity:1; }
+  .node circle{ cursor:pointer; stroke:#0b1020; stroke-width:1.5; }
+  .node text.lbl{ fill:var(--muted); font-size:10px; pointer-events:none; }
+  .node.sel circle{ stroke:#fff; stroke-width:2.5; }
+  .node.dim{ opacity:.1; }
+  .node.hl text.lbl{ fill:var(--text); }
+  .flownum{ fill:#ffd36b; font-size:11px; font-weight:700; }
+  #panel{ position:absolute; top:56px; right:0; width:320px; bottom:0; background:var(--panel);
+    border-left:1px solid var(--line); padding:18px; overflow:auto; transform:translateX(100%);
+    transition:transform .2s; z-index:6; }
+  #panel.open{ transform:none; }
+  #panel .layer{ font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
+  #panel h2{ font-size:18px; margin:6px 0 2px; }
+  #panel .path{ color:var(--muted); font-size:12px; margin-bottom:14px; word-break:break-all; }
+  #panel .k{ font-size:11px; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); margin-top:14px; }
+  #panel .v{ margin-top:3px; }
+  #panel .chip{ display:inline-block; background:#16203c; border:1px solid var(--line); border-radius:6px;
+    padding:3px 9px; margin:4px 4px 0 0; font-size:12px; cursor:pointer; }
+  #panel .chip:hover{ border-color:#3a4d80; }
+  #panel .close{ position:absolute; top:12px; right:14px; cursor:pointer; color:var(--muted); font-size:18px; }
+  #legend{ position:absolute; left:16px; bottom:16px; background:rgba(15,23,48,.9); border:1px solid var(--line);
+    border-radius:10px; padding:12px 14px; z-index:5; max-width:280px; }
+  #legend .ttl{ font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); margin-bottom:8px; }
+  #legend .row{ display:flex; align-items:center; gap:8px; font-size:12px; padding:3px 0; cursor:pointer; }
+  #legend .row.off{ opacity:.35; }
+  #legend .dot{ width:11px; height:11px; border-radius:50%; flex:none; }
+  #hint{ position:absolute; left:50%; bottom:16px; transform:translateX(-50%); color:var(--muted);
+    font-size:11px; z-index:4; }
+  #flows{ display:flex; gap:6px; flex-wrap:wrap; }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div><h1 id="title">System Map</h1> <span class="sub" id="subtitle"></span></div>
+    <div id="flows"></div>
+    <div class="spacer"></div>
+    <input id="search" placeholder="find a file…" />
+    <button class="btn" id="reset">reset view</button>
+  </header>
+  <svg id="svg"><g id="scene"><g id="edges"></g><g id="nodes"></g></g></svg>
+  <div id="legend"><div class="ttl">Layers · click to toggle</div><div id="legend-rows"></div></div>
+  <div id="hint">drag a node to move it · scroll to zoom · drag background to pan · click a node for details</div>
+  <div id="panel"><span class="close" id="panel-close">×</span><div id="panel-body"></div></div>
+</div>
+<script>
+const DATA = /*__MAP_DATA__*/null;
+(function(){
+  const title=document.getElementById("title");
+  if(!DATA || !DATA.nodes.length){ title.textContent="System Map (no data)"; return; }
+  if(typeof d3==="undefined"){ title.textContent="System Map (d3 failed to load — need internet)"; return; }
+  const NS="http://www.w3.org/2000/svg";
+  const svg=document.getElementById("svg"), scene=document.getElementById("scene");
+  const gEdges=document.getElementById("edges"), gNodes=document.getElementById("nodes");
+  const W=()=>svg.clientWidth||1280, H=()=>svg.clientHeight||720;
+  const layerColor={}; DATA.layers.forEach(l=>layerColor[l.id]=l.color);
+  const byId={}; DATA.nodes.forEach(n=>byId[n.id]=n);
+  const rawEdges=DATA.edges.filter(e=>byId[e.source]&&byId[e.target]);
+  const adj={}; DATA.nodes.forEach(n=>adj[n.id]=new Set());
+  rawEdges.forEach(e=>{ adj[e.source].add(e.target); adj[e.target].add(e.source); });
+  const rad=n=>4+Math.min(10,(n.deg||0)*0.9);
+  const links=rawEdges.map(e=>({source:e.source,target:e.target}));
+
+  // ---- d3 force layout ----
+  const sim=d3.forceSimulation(DATA.nodes)
+    .force("charge",d3.forceManyBody().strength(-220))
+    .force("link",d3.forceLink(links).id(d=>d.id).distance(70).strength(0.4))
+    .force("center",d3.forceCenter(W()/2,H()/2))
+    .force("collide",d3.forceCollide().radius(d=>rad(d)+7))
+    .force("x",d3.forceX(W()/2).strength(0.03))
+    .force("y",d3.forceY(H()/2).strength(0.03))
+    .on("tick",render);
+
+  // ---- build svg ----
+  const edgeEls=links.map(ld=>{ const l=document.createElementNS(NS,"line"); l.setAttribute("class","edge"); gEdges.appendChild(l); return {l,ld}; });
+  const nodeEls={};
+  DATA.nodes.forEach(n=>{ const g=document.createElementNS(NS,"g"); g.setAttribute("class","node");
+    const c=document.createElementNS(NS,"circle"); c.setAttribute("r",rad(n)); c.setAttribute("fill",layerColor[n.layer]||"#4f9dff");
+    const t=document.createElementNS(NS,"text"); t.setAttribute("class","lbl"); t.setAttribute("x",rad(n)+4); t.setAttribute("y",3); t.textContent=n.label;
+    const num=document.createElementNS(NS,"text"); num.setAttribute("class","flownum"); num.setAttribute("x",-4); num.setAttribute("y",-rad(n)-4); num.style.display="none";
+    g.append(c,t,num); gNodes.appendChild(g); nodeEls[n.id]={g,c,t,num};
+    g.addEventListener("mousedown",ev=>{ ev.stopPropagation(); startDrag(n,ev); });
+    g.addEventListener("click",ev=>{ ev.stopPropagation(); if(!moved) select(n); });
+  });
+  function render(){
+    edgeEls.forEach(({l,ld})=>{ l.setAttribute("x1",ld.source.x); l.setAttribute("y1",ld.source.y); l.setAttribute("x2",ld.target.x); l.setAttribute("y2",ld.target.y); });
+    DATA.nodes.forEach(n=>{ nodeEls[n.id].g.setAttribute("transform",`translate(${n.x},${n.y})`); });
+  }
+
+  // ---- pan / zoom / drag ----
+  let tx=0,ty=0,scale=1, drag=null, pan=null, moved=false;
+  const applyView=()=>scene.setAttribute("transform",`translate(${tx},${ty}) scale(${scale})`);
+  function startDrag(n,ev){ drag={n,x:ev.clientX,y:ev.clientY}; moved=false; sim.alphaTarget(0.15).restart(); n.fx=n.x; n.fy=n.y; }
+  svg.addEventListener("wheel",ev=>{ ev.preventDefault(); const f=ev.deltaY<0?1.1:0.9;
+    tx=ev.clientX-(ev.clientX-tx)*f; ty=ev.clientY-(ev.clientY-ty)*f; scale*=f; applyView(); },{passive:false});
+  svg.addEventListener("mousedown",ev=>{ pan={x:ev.clientX,y:ev.clientY,tx,ty}; svg.classList.add("grabbing"); });
+  window.addEventListener("mousemove",ev=>{
+    if(drag){ moved=true; drag.n.fx=(ev.clientX-tx)/scale; drag.n.fy=(ev.clientY-ty)/scale; }
+    else if(pan){ moved=true; tx=pan.tx+(ev.clientX-pan.x); ty=pan.ty+(ev.clientY-pan.y); applyView(); } });
+  window.addEventListener("mouseup",()=>{ if(drag){ drag.n.fx=null; drag.n.fy=null; sim.alphaTarget(0); } drag=null; pan=null; svg.classList.remove("grabbing"); });
+
+  // ---- selection panel ----
+  const panel=document.getElementById("panel"), pbody=document.getElementById("panel-body");
+  document.getElementById("panel-close").onclick=()=>{ panel.classList.remove("open"); clearSel(); };
+  let selected=null;
+  const esc=s=>String(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+  function clearSel(){ if(selected)nodeEls[selected].g.classList.remove("sel"); selected=null; DATA.nodes.forEach(n=>nodeEls[n.id].g.classList.remove("dim")); }
+  function select(n){ clearFlow(); clearSel(); selected=n.id; nodeEls[n.id].g.classList.add("sel");
+    DATA.nodes.forEach(m=>{ if(m.id!==n.id && !adj[n.id].has(m.id)) nodeEls[m.id].g.classList.add("dim"); });
+    const conns=[...adj[n.id]];
+    pbody.innerHTML=`<div class="layer" style="color:${layerColor[n.layer]||'#8b98c9'}">● ${esc(n.layer)}</div>`
+      +`<h2>${esc(n.label)}</h2><div class="path">${esc(n.path)}</div>`
+      +(n.role?`<div class="v">${esc(n.role)}</div>`:`<div class="v" style="color:var(--muted)">No curated description yet.</div>`)
+      +(n.input?`<div class="k">Input →</div><div class="v">${esc(n.input)}</div>`:"")
+      +(n.output?`<div class="k">Output →</div><div class="v">${esc(n.output)}</div>`:"")
+      +`<div class="k">Connected (${conns.length})</div><div>`
+      +conns.map(id=>`<span class="chip" data-id="${esc(id)}">${esc(byId[id].label)}</span>`).join("")+`</div>`;
+    pbody.querySelectorAll(".chip").forEach(ch=>ch.onclick=()=>{ const m=byId[ch.dataset.id]; center(m); select(m); });
+    panel.classList.add("open");
+  }
+  function center(n){ tx=(W()-320)/2-n.x*scale; ty=H()/2-n.y*scale; applyView(); }
+
+  // ---- flows ----
+  const gflows=document.getElementById("flows"); let activeFlow=null;
+  const resolveFlowNode=id=>byId[id]||DATA.nodes.find(n=>n.label===id);
+  (DATA.flows||[]).forEach(f=>{ const b=document.createElement("button"); b.className="btn"; b.textContent="◦ "+f.name;
+    b.onclick=()=>{ activeFlow===f?clearFlow():showFlow(f,b); }; gflows.appendChild(b); });
+  function clearFlow(){ activeFlow=null; document.querySelectorAll("#flows .btn").forEach(b=>b.classList.remove("on"));
+    edgeEls.forEach(({l})=>l.classList.remove("hl")); DATA.nodes.forEach(n=>{ nodeEls[n.id].g.classList.remove("dim","hl"); nodeEls[n.id].num.style.display="none"; }); }
+  function showFlow(f,btn){ clearSel(); clearFlow(); activeFlow=f; btn.classList.add("on");
+    const seq=f.nodes.map(resolveFlowNode).filter(Boolean); const set=new Set(seq.map(n=>n.id));
+    DATA.nodes.forEach(n=>{ set.has(n.id)?nodeEls[n.id].g.classList.add("hl"):nodeEls[n.id].g.classList.add("dim"); });
+    seq.forEach((n,i)=>{ nodeEls[n.id].num.textContent=i+1; nodeEls[n.id].num.style.display=""; });
+    edgeEls.forEach(({l,ld})=>{ if(set.has(ld.source.id)&&set.has(ld.target.id)) l.classList.add("hl"); }); }
+
+  // ---- legend ----
+  const lrows=document.getElementById("legend-rows"); const hidden=new Set();
+  DATA.layers.forEach(l=>{ const row=document.createElement("div"); row.className="row";
+    row.innerHTML=`<span class="dot" style="background:${l.color}"></span>${esc(l.label)}`;
+    row.onclick=()=>{ hidden.has(l.id)?hidden.delete(l.id):hidden.add(l.id); row.classList.toggle("off");
+      DATA.nodes.forEach(n=>{ nodeEls[n.id].g.style.display=hidden.has(n.layer)?"none":""; });
+      edgeEls.forEach(({l:ln,ld})=>{ ln.style.display=(hidden.has(ld.source.layer)||hidden.has(ld.target.layer))?"none":""; }); };
+    lrows.appendChild(row); });
+
+  // ---- search ----
+  document.getElementById("search").addEventListener("input",e=>{ const q=e.target.value.toLowerCase().trim();
+    DATA.nodes.forEach(n=>{ const hit=q&&n.label.toLowerCase().includes(q); nodeEls[n.id].g.classList.toggle("dim",!!q&&!hit); nodeEls[n.id].g.classList.toggle("hl",!!hit); });
+    if(q){ const m=DATA.nodes.find(n=>n.label.toLowerCase().includes(q)); if(m)center(m); } });
+
+  document.getElementById("reset").onclick=()=>{ tx=0;ty=0;scale=1; applyView(); clearSel(); clearFlow();
+    document.getElementById("search").value=""; DATA.nodes.forEach(n=>nodeEls[n.id].g.classList.remove("dim","hl")); };
+
+  document.getElementById("subtitle").textContent=`${DATA.meta.count} files · ${DATA.meta.edges} links`;
+  applyView();
+})();
+</script>
+</body>
+</html>
